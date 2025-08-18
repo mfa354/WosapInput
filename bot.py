@@ -42,7 +42,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN env var is required")
 
-TARGET_USER_ID = get_env_int("6922406317", None)  # integer, required for sending
+TARGET_USER_ID = get_env_int("TARGET_USER_ID", None)  # integer, required for sending
 WEBHOOK_BASE = os.getenv("WEBHOOK_BASE")  # e.g. https://your-app.up.railway.app
 PORT = int(os.getenv("PORT", "8080"))
 
