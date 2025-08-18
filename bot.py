@@ -20,13 +20,20 @@ def escape_markdown_v2(text: str) -> str:
 
 
 def get_env_int(name: str, default: Optional[int] = None) -> Optional[int]:
-    val = os.getenv(name)
-    if val is None or val == "":
+    """Read INT env var, sanitize common paste mistakes (spaces / leading '=')"""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    val = raw.strip()
+    if val.startswith("="):
+        val = val[1:].strip()
+    if val == "":
         return default
     try:
         return int(val)
     except ValueError:
-        raise ValueError(f"Environment variable {name} must be an integer")
+        # Tampilkan apa yang benar-benar terbaca agar mudah debug di Railway Logs
+        raise ValueError(f"Environment variable {name} must be an integer (got {raw!r})")
 
 
 # ========= Logging =========
@@ -47,10 +54,7 @@ WEBHOOK_BASE = os.getenv("WEBHOOK_BASE")  # e.g. https://your-app.up.railway.app
 PORT = int(os.getenv("PORT", "8080"))
 
 # Auto-mode: webhook if WEBHOOK_BASE provided, else polling (override with MODE)
-MODE = os.getenv("MODE")
-if not MODE:
-    MODE = "webhook" if WEBHOOK_BASE else "polling"
-MODE = MODE.lower().strip()
+MODE = (os.getenv("MODE") or ("webhook" if WEBHOOK_BASE else "polling")).lower().strip()
 
 # ========= Bot Logic =========
 class PhoneBot:
@@ -78,7 +82,6 @@ class PhoneBot:
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
 
-        # Cek mode input
         if not self.waiting_for_number.get(user_id, False):
             await update.message.reply_text("Gunakan /start untuk memulai proses input nomor telepon.")
             return
@@ -86,7 +89,6 @@ class PhoneBot:
         text = (update.message.text or "").strip()
         digits_only = "".join(filter(str.isdigit, text))
 
-        # Validasi input
         if not digits_only:
             await update.message.reply_text(
                 "❌ *Input tidak valid!*\n\n"
@@ -98,7 +100,6 @@ class PhoneBot:
 
         processed_number = self.process_phone_number(text)
 
-        # Pastikan TARGET_USER_ID tersedia
         if TARGET_USER_ID is None:
             await update.message.reply_text(
                 "⚠️ *TARGET_USER_ID belum dikonfigurasi di ENV!*\n\n"
@@ -108,14 +109,11 @@ class PhoneBot:
             return
 
         try:
-            # Kirim ke target user
             await context.bot.send_message(
                 chat_id=TARGET_USER_ID,
                 text=f"`{processed_number}`",
                 parse_mode="Markdown",
             )
-
-            # Konfirmasi ke pengirim
             await update.message.reply_text(
                 "✅ *Berhasil terkirim!*\n\n"
                 f"Nomor asli: `{text}`\n"
@@ -225,7 +223,6 @@ class PhoneBot:
 def main():
     """Main function untuk menjalankan bot (polling lokal / webhook Railway)"""
     phone_bot = PhoneBot()
-
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # Handlers
@@ -239,31 +236,19 @@ def main():
     if MODE == "webhook":
         if not WEBHOOK_BASE:
             raise RuntimeError("WEBHOOK_BASE env var is required for webhook mode")
-        # Gunakan path = token agar unik
         url_path = BOT_TOKEN
         webhook_url = f"{WEBHOOK_BASE.rstrip('/')}/{url_path}"
         print(f"🌐 Setting webhook: {webhook_url}")
-        try:
-            application.run_webhook(
-                listen="0.0.0.0",
-                port=PORT,
-                url_path=url_path,
-                webhook_url=webhook_url,
-                drop_pending_updates=True,
-                # Note: PTB v21+ tidak butuh `allowed_updates` khusus untuk basic messages
-            )
-        except Exception as e:
-            logger.error("Error running webhook: %s", e)
-            raise
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=url_path,
+            webhook_url=webhook_url,
+            drop_pending_updates=True,
+        )
     else:
         print("📡 Running with polling (lokal/dev).")
-        try:
-            application.run_polling(drop_pending_updates=True)
-        except KeyboardInterrupt:
-            print("\n🛑 Bot dihentikan oleh user")
-        except Exception as e:
-            logger.error("Error running bot: %s", e)
-            print(f"❌ Error: {e}")
+        application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
